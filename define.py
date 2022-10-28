@@ -14,6 +14,10 @@ TFRECORD_VALID_PATH = DATASET_ROOTDIR + "/" + OPENPACK_VERSION + "/tfrecord_vali
 if not os.path.exists(TFRECORD_VALID_PATH):
     os.makedirs(TFRECORD_VALID_PATH)
 
+SAVE_CKPT_PATH = "/Users/farina/Workspace/Databases/OpenPack/ckpt/"
+if not os.path.exists(TFRECORD_VALID_PATH):
+    os.makedirs(TFRECORD_VALID_PATH)
+
 USER_ID_TRAIN = [
     # "U0101",
     "U0102",
@@ -34,3 +38,6 @@ NUM_CLASSES = 11
 DATA_LEN = 30
 FEATURE_LEN = 5
 BATCH_SIZE = 8
+
+LEARNING_RATE = 1e-3
+EPOCHS = 3
