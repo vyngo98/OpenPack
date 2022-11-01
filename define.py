@@ -15,8 +15,8 @@ if not os.path.exists(TFRECORD_VALID_PATH):
     os.makedirs(TFRECORD_VALID_PATH)
 
 SAVE_CKPT_PATH = "/Users/farina/Workspace/Databases/OpenPack/ckpt/"
-if not os.path.exists(TFRECORD_VALID_PATH):
-    os.makedirs(TFRECORD_VALID_PATH)
+if not os.path.exists(SAVE_CKPT_PATH):
+    os.makedirs(SAVE_CKPT_PATH)
 
 USER_ID_TRAIN = [
     # "U0101",
@@ -33,7 +33,8 @@ E4_DEVICE_ID = ['e401']
 
 ONE_SECOND_IN_MILISECOND = 1000  # ms
 
-NUM_DATA_TYPE = 11  # include unix_time column
+# NUM_DATA_TYPE = 11  # include unix_time column
+NUM_DATA_TYPE = 10
 NUM_CLASSES = 11
 DATA_LEN = 30
 FEATURE_LEN = 5

@@ -53,7 +53,7 @@ def _parse_function(record_batch, data_len, classes_len, feature_len):
     feature = {
         'data': tf.io.FixedLenFeature([data_len*NUM_DATA_TYPE, 1], tf.float32),
         'label': tf.io.FixedLenFeature([classes_len], tf.int64),
-        'feature': tf.io.FixedLenFeature([feature_len*(NUM_DATA_TYPE - 1), 1], tf.float32)
+        'feature': tf.io.FixedLenFeature([feature_len*NUM_DATA_TYPE, 1], tf.float32)
     }
 
     example = tf.io.parse_example(record_batch, feature)

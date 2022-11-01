@@ -56,7 +56,7 @@ def process_data(user_id, session_id, device_id, e4_device_id, openpack_version,
     # timestamp_data = data_itpl['unixtime']
     for i in range(len(annotation_itpl)):
         seg = data_itpl[(data_itpl["unixtime"] >= annotation_itpl['unixtime'][i]) & (data_itpl["unixtime"] <= annotation_itpl['unixtime'][i] + df.ONE_SECOND_IN_MILISECOND)]
-        data_seg.append(np.asarray(seg[: df.DATA_LEN]))
+        data_seg.append(np.asarray(seg[: df.DATA_LEN])[:, 1:])
         label_seg.append(annotation_itpl['cls_idx'][i])
         # extract features
         if feature:
@@ -68,7 +68,6 @@ def process_data(user_id, session_id, device_id, e4_device_id, openpack_version,
             path=tfrecord_path + f'/{user_id}-{session_id}_{device_id}_{e4_device_id}.tfrecord',
             dataset=(data_seg, label_seg, feature_seg)
         )
-        exit()
 
     return data_seg, label_seg, feature_seg
 
@@ -109,6 +108,7 @@ def main(prepare_data=False):
                 for e4_device_id in df.E4_DEVICE_ID:
                     if prepare_data:
                         data_seg, label_seg, feature_seg = process_data(user_id, session_id, device_id, e4_device_id, df.OPENPACK_VERSION, df.DATASET_ROOTDIR, tfrecord_path=df.TFRECORD_TRAIN_PATH)
+                        label_seg = tf.keras.utils.to_categorical(label_seg, df.NUM_CLASSES).astype('int64')
 
                     else:  # load dat from tfrecord files
                         tfrecord_name = df.TFRECORD_TRAIN_PATH + '/{}-{}_{}_{}.tfrecord'.format(user_id, session_id, device_id, e4_device_id)
@@ -127,7 +127,6 @@ def main(prepare_data=False):
     # result = list(map(process_data, args1, args2, args3, args4, args5, args6))
 
     # region Training
-    # X_train, X_test, y_train, y_test = train_test_split(feature, label, test_size=0.3, random_state=42)
     X_train, X_test, y_train, y_test = train_test_split(data, label, test_size=0.3, random_state=42)
 
     # train_dataset
@@ -173,8 +172,8 @@ def main(prepare_data=False):
 
     # region Testing
     y_predict = model.predict(np.array(X_test))
-    y_predict_convert = np.argmax(y_predict, axis=0)
-    y_test_convert = np.argmax(y_test, axis=0)
+    y_predict_convert = np.argmax(y_predict, axis=1)
+    y_test_convert = np.argmax(y_test, axis=1)
     print(classification_report(y_test_convert, y_predict_convert))
 
     ConfusionMatrixDisplay(confusion_matrix(y_test_convert, y_predict_convert)).plot()
