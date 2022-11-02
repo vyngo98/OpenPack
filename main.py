@@ -8,6 +8,7 @@ from callback import CreateCallBack
 
 import os
 import numpy as np
+from wfdb.processing import resample_sig
 import tensorflow as tf
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
@@ -15,14 +16,38 @@ from sklearn.metrics import plot_confusion_matrix
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report
 
 
+# def extract_feature(data):
+#     mean_ft = np.array(data.mean())[1:]
+#     std_ft = np.array(data.std())[1:]
+#     max_ft = np.array(data.max())[1:]
+#     min_ft = np.array(data.min())[1:]
+#     var_ft = np.array(data.var())[1:]
+#     features = np.array([mean_ft, std_ft, max_ft, min_ft, var_ft]).T.flatten()
+#     return features
+
+
 def extract_feature(data):
-    mean_ft = np.array(data.mean())[1:]
-    std_ft = np.array(data.std())[1:]
-    max_ft = np.array(data.max())[1:]
-    min_ft = np.array(data.min())[1:]
-    var_ft = np.array(data.var())[1:]
-    features = np.array([mean_ft, std_ft, max_ft, min_ft, var_ft]).T.flatten()
+    mean_ft = np.mean(data, axis=0)
+    std_ft = np.std(data, axis=0)
+    max_ft = np.max(data, axis=0)
+    min_ft = np.min(data, axis=0)
+    var_ft = np.var(data, axis=0)
+    med_ft = np.median(data, axis=0)
+    sum_ft = np.sum(data, axis=0)
+    features = np.array([mean_ft, std_ft, max_ft, min_ft, var_ft, med_ft, sum_ft]).T.flatten()
     return features
+
+
+def segment(data, max_time, sub_window_size, stride_size):
+        sub_windows = np.arange(sub_window_size)[None, :] + np.arange(0, max_time, stride_size)[:, None]
+
+        row, col = np.where(sub_windows >= max_time)
+        uniq_row = len(np.unique(row))
+
+        if uniq_row > 0 and row[0] > 0:
+            sub_windows = sub_windows[:-uniq_row, :]
+
+        return data[sub_windows]
 
 
 def process_data(user_id, session_id, device_id, e4_device_id, openpack_version, dataset_rootdir, tfrecord_path,
@@ -48,26 +73,51 @@ def process_data(user_id, session_id, device_id, e4_device_id, openpack_version,
 
     annotation_itpl["cls_idx"] = optk.OPENPACK_OPERATIONS.convert_id_to_index(annotation_itpl["operation"])
 
-    # segmentation
+    filt_data_itpl = np.array(data_itpl[(data_itpl['unixtime'] >= annotation_itpl['unixtime'].iloc[0]) &
+                (data_itpl['unixtime'] < annotation_itpl['unixtime'].iloc[-1] + df.ONE_SECOND_IN_MILISECOND)])[:, 1:]
+
+    # region Segmentation
+    # resamp_data = np.asarray([])
+    # for ch in range(np.shape(filt_data_itpl)[1]):
+    #     resamp_sig, _ = resample_sig(filt_data_itpl[:, ch], df.FS_ORG, df.FS_TARGET)
+    #     if len(resamp_data) == 0:
+    #         resamp_data = resamp_sig.reshape(-1, 1)
+    #     else:
+    #         resamp_data = np.concatenate((resamp_data, resamp_sig.reshape(-1, 1)), axis=1)
+    #
+    # data_seg = segment(resamp_data, max_time=len(resamp_data), sub_window_size=df.WINDOW_SIZE*df.FS_TARGET,
+    #                    stride_size=(df.WINDOW_SIZE-df.OVERLAP)*df.FS_TARGET)
+    #
+    # label_seg = segment(np.array(annotation_itpl["cls_idx"]), max_time=len(np.array(annotation_itpl["cls_idx"])),
+    #                     sub_window_size=df.WINDOW_SIZE, stride_size=df.OVERLAP)
+    #
+    # feature_seg = [extract_feature(data_seg[i]) for i in range(len(data_seg))]
+    # endregion
+
+
+    # region segmentation old version
     data_seg = []
     label_seg = []
     feature_seg = []
-    # timestamp_ann = annotation_itpl['unixtime']
-    # timestamp_data = data_itpl['unixtime']
+    timestamp_ann = annotation_itpl['unixtime']
+    timestamp_data = data_itpl['unixtime']
     for i in range(len(annotation_itpl)):
-        seg = data_itpl[(data_itpl["unixtime"] >= annotation_itpl['unixtime'][i]) & (data_itpl["unixtime"] <= annotation_itpl['unixtime'][i] + df.ONE_SECOND_IN_MILISECOND)]
-        data_seg.append(np.asarray(seg[: df.DATA_LEN])[:, 1:])
+        seg = data_itpl[(data_itpl["unixtime"] >= annotation_itpl['unixtime'][i]) & (
+                    data_itpl["unixtime"] <= annotation_itpl['unixtime'][i] + df.ONE_SECOND_IN_MILISECOND)]
+        data_seg.append(np.asarray(seg[: df.WINDOW_SIZE*df.FS_TARGET])[:, 1:])
         label_seg.append(annotation_itpl['cls_idx'][i])
         # extract features
         if feature:
             feature_seg.append(extract_feature(seg))
+    # endregion
 
-    # write tf_record file
+    # region Write tf_record file
     if 0 < len(data_seg) == len(label_seg) > 0 and write_tfrecord:
         tfrecord.generate_data(
             path=tfrecord_path + f'/{user_id}-{session_id}_{device_id}_{e4_device_id}.tfrecord',
             dataset=(data_seg, label_seg, feature_seg)
         )
+    # endregion
 
     return data_seg, label_seg, feature_seg
 
@@ -100,18 +150,24 @@ def visualize_model(checkpoint_path, history):
         plt.show()
 
 
-def main(prepare_data=False):
+def main(prepare_data=True):
     data, label, feature = [], [], []
     for user_id in df.USER_ID_TRAIN:
         for session_id in df.SESSION_ID_TRAIN:
             for device_id in df.DEVICE_ID:
                 for e4_device_id in df.E4_DEVICE_ID:
                     if prepare_data:
-                        data_seg, label_seg, feature_seg = process_data(user_id, session_id, device_id, e4_device_id, df.OPENPACK_VERSION, df.DATASET_ROOTDIR, tfrecord_path=df.TFRECORD_TRAIN_PATH)
+                        all_data = LoadData(user_id, session_id, device_id, e4_device_id, df.OPENPACK_VERSION,
+                                            df.DATASET_ROOTDIR).process()
+                        data_seg, label_seg, feature_seg = ProcessData(user_id, session_id, device_id, e4_device_id, all_data, df.TFRECORD_TRAIN_PATH).process(write_tfrecord=True)
+                        # data_seg, label_seg, feature_seg = process_data(user_id, session_id, device_id, e4_device_id,
+                        #                                                 df.OPENPACK_VERSION, df.DATASET_ROOTDIR,
+                        #                                                 tfrecord_path=df.TFRECORD_TRAIN_PATH)
                         label_seg = tf.keras.utils.to_categorical(label_seg, df.NUM_CLASSES).astype('int64')
 
                     else:  # load dat from tfrecord files
-                        tfrecord_name = df.TFRECORD_TRAIN_PATH + '/{}-{}_{}_{}.tfrecord'.format(user_id, session_id, device_id, e4_device_id)
+                        tfrecord_name = df.TFRECORD_TRAIN_PATH + '/{}-{}_{}_{}.tfrecord'.format(user_id, session_id,
+                                                                                                device_id, e4_device_id)
                         if not os.path.isfile(tfrecord_name):
                             print('{} no exists!'.format(tfrecord_name))
                             continue
@@ -138,7 +194,7 @@ def main(prepare_data=False):
     eval_dataset = eval_dataset.batch(df.BATCH_SIZE)
 
     print('\nII. Training Process')
-    model = ActivityModel(input_len=df.DATA_LEN, num_data_type=df.NUM_DATA_TYPE, output_shape=df.NUM_CLASSES).make()
+    model = ActivityModel(input_len=df.WINDOW_SIZE*df.FS_TARGET, num_data_type=df.NUM_DATA_TYPE, output_shape=df.NUM_CLASSES).make()
     model.summary()
 
     callbacks, path = CreateCallBack().creating_callbacks(df.SAVE_CKPT_PATH)

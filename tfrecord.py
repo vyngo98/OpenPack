@@ -43,7 +43,7 @@ def generate_data(path, dataset, classes=NUM_CLASSES):
             feature = dict()
             feature['data'] = _float_feature(data.flatten().tolist())
             feature['feature'] = _float_feature(dataset[2][idx].tolist())
-            feature['label'] = _int64_feature(label[idx].tolist())
+            feature['label'] = _int64_feature(label[idx].flatten().tolist())
 
             example = tf.train.Example(features=tf.train.Features(feature=feature))
             writer.write(example.SerializeToString())
@@ -52,7 +52,7 @@ def generate_data(path, dataset, classes=NUM_CLASSES):
 def _parse_function(record_batch, data_len, classes_len, feature_len):
     feature = {
         'data': tf.io.FixedLenFeature([data_len*NUM_DATA_TYPE, 1], tf.float32),
-        'label': tf.io.FixedLenFeature([classes_len], tf.int64),
+        'label': tf.io.FixedLenFeature([classes_len*WINDOW_SIZE], tf.int64),
         'feature': tf.io.FixedLenFeature([feature_len*NUM_DATA_TYPE, 1], tf.float32)
     }
 
@@ -68,14 +68,16 @@ def _calc_num_steps(num_samples, batch_size):
 def get_dataset_from_tfrecord(files):
     data, feature, label = [], [], []
     ds = tf.data.TFRecordDataset(files)
-    map_function = partial(_parse_function, data_len=DATA_LEN, classes_len=NUM_CLASSES, feature_len=FEATURE_LEN)
+    map_function = partial(_parse_function, data_len=WINDOW_SIZE*FS_TARGET, classes_len=NUM_CLASSES, feature_len=FEATURE_LEN)
     ds = ds.map(map_function, num_parallel_calls=os.cpu_count())
+
+    # _parse_function(ds, data_len=WINDOW_SIZE*FS_TARGET, classes_len=NUM_CLASSES, feature_len=FEATURE_LEN)
     ds = ds.batch(BATCH_SIZE)
     for index, batch in enumerate(ds):
         list_tensors = [i for i in batch]
-        data.extend([tensor.numpy().flatten().reshape((DATA_LEN, NUM_DATA_TYPE)) for tensor in list_tensors[0]])
+        data.extend([tensor.numpy().flatten().reshape((WINDOW_SIZE*FS_TARGET, NUM_DATA_TYPE)) for tensor in list_tensors[0]])
         feature.extend([tensor.numpy().flatten() for tensor in list_tensors[2]])
-        label.extend([tensor.numpy().flatten() for tensor in list_tensors[1]])
+        label.extend([tensor.numpy().flatten().reshape((WINDOW_SIZE, NUM_CLASSES)) for tensor in list_tensors[1]])
     return data, feature, label
 
 

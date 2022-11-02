@@ -1,16 +1,17 @@
 import os
 
 OPENPACK_VERSION = "v0.3.0"
+TRAINING_VERSION = "v2"
 DATASET_ROOTDIR = "/Users/farina/Workspace/Databases/OpenPack/data/datasets"
-TFRECORD_TRAIN_PATH = DATASET_ROOTDIR + "/" + OPENPACK_VERSION + "/tfrecord_training"
+TFRECORD_TRAIN_PATH = DATASET_ROOTDIR + "/" + TRAINING_VERSION + "/tfrecord_training"
 if not os.path.exists(TFRECORD_TRAIN_PATH):
     os.makedirs(TFRECORD_TRAIN_PATH)
 
-TFRECORD_TEST_PATH = DATASET_ROOTDIR + "/" + OPENPACK_VERSION + "/tfrecord_testing"
+TFRECORD_TEST_PATH = DATASET_ROOTDIR + "/" + TRAINING_VERSION + "/tfrecord_testing"
 if not os.path.exists(TFRECORD_TEST_PATH):
     os.makedirs(TFRECORD_TEST_PATH)
 
-TFRECORD_VALID_PATH = DATASET_ROOTDIR + "/" + OPENPACK_VERSION + "/tfrecord_valid"
+TFRECORD_VALID_PATH = DATASET_ROOTDIR + "/" + TRAINING_VERSION + "/tfrecord_valid"
 if not os.path.exists(TFRECORD_VALID_PATH):
     os.makedirs(TFRECORD_VALID_PATH)
 
@@ -33,11 +34,19 @@ E4_DEVICE_ID = ['e401']
 
 ONE_SECOND_IN_MILISECOND = 1000  # ms
 
+FS_ORG = 1000/33  # Hz
+FS_TARGET = 30  # Hz
+
+# WINDOW_SIZE = 60  # second
+WINDOW_SIZE = 1  # second
+# OVERLAP = 30  # second
+OVERLAP = 0  # second
+
 # NUM_DATA_TYPE = 11  # include unix_time column
 NUM_DATA_TYPE = 10
 NUM_CLASSES = 11
 DATA_LEN = 30
-FEATURE_LEN = 5
+FEATURE_LEN = 7
 BATCH_SIZE = 8
 
 LEARNING_RATE = 1e-3

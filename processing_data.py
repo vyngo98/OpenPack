@@ -8,6 +8,10 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 import openpack_toolkit as optk
 from omegaconf import DictConfig, OmegaConf
+from wfdb.processing import resample_sig
+
+import tfrecord
+import define as df
 
 
 class LoadData:
@@ -500,6 +504,117 @@ class LoadData:
         # all_data.append(e4_data)
 
         return all_data
+
+class ProcessData:
+    def __init__(self, user_id, session_id, device_id, e4_device_id, all_data, tfrecord_path):
+        self.user_id = user_id
+        self.session_id = session_id
+        self.device_id = device_id
+        self.e4_device_id = e4_device_id
+        self.all_data = all_data
+        self.tfrecord_path = tfrecord_path
+
+    # def extract_feature(data):
+    #     mean_ft = np.array(data.mean())[1:]
+    #     std_ft = np.array(data.std())[1:]
+    #     max_ft = np.array(data.max())[1:]
+    #     min_ft = np.array(data.min())[1:]
+    #     var_ft = np.array(data.var())[1:]
+    #     features = np.array([mean_ft, std_ft, max_ft, min_ft, var_ft]).T.flatten()
+    #     return features
+
+    @staticmethod
+    def extract_feature(data):
+        mean_ft = np.mean(data, axis=0)
+        std_ft = np.std(data, axis=0)
+        max_ft = np.max(data, axis=0)
+        min_ft = np.min(data, axis=0)
+        var_ft = np.var(data, axis=0)
+        med_ft = np.median(data, axis=0)
+        sum_ft = np.sum(data, axis=0)
+        features = np.array([mean_ft, std_ft, max_ft, min_ft, var_ft, med_ft, sum_ft]).T.flatten()
+        return features
+
+    @staticmethod
+    def segment(data, max_time, sub_window_size, stride_size):
+        sub_windows = np.arange(sub_window_size)[None, :] + np.arange(0, max_time, stride_size)[:, None]
+
+        row, col = np.where(sub_windows >= max_time)
+        uniq_row = len(np.unique(row))
+
+        if uniq_row > 0 and row[0] > 0:
+            sub_windows = sub_windows[:-uniq_row, :]
+
+        return data[sub_windows]
+
+    def process(self, write_tfrecord=True):
+        annotation = self.all_data[0]
+        data = self.all_data[1]
+
+        # sort data based on timestamp
+        annotation.sort_values('unixtime')
+        data.sort_values('unixtime')
+
+        # drop duplicate
+        annotation = annotation.drop_duplicates()
+        data = data.drop_duplicates()
+
+        # interpolate missing values
+        data_itpl = data.interpolate()
+        data_itpl = data_itpl.fillna(0)
+
+        annotation_itpl = annotation.interpolate()
+        annotation_itpl = annotation_itpl.fillna(0)
+
+        annotation_itpl["cls_idx"] = optk.OPENPACK_OPERATIONS.convert_id_to_index(annotation_itpl["operation"])
+
+        filt_data_itpl = np.array(data_itpl[(data_itpl['unixtime'] >= annotation_itpl['unixtime'].iloc[0]) &
+                                            (data_itpl['unixtime'] < annotation_itpl['unixtime'].iloc[
+                                                -1] + df.ONE_SECOND_IN_MILISECOND)])[:, 1:]
+
+        # region Segmentation
+        resamp_data = np.asarray([])
+        for ch in range(np.shape(filt_data_itpl)[1]):
+            resamp_sig, _ = resample_sig(filt_data_itpl[:, ch], df.FS_ORG, df.FS_TARGET)
+            if len(resamp_data) == 0:
+                resamp_data = resamp_sig.reshape(-1, 1)
+            else:
+                resamp_data = np.concatenate((resamp_data, resamp_sig.reshape(-1, 1)), axis=1)
+
+        data_seg = self.segment(resamp_data, max_time=len(resamp_data), sub_window_size=df.WINDOW_SIZE * df.FS_TARGET,
+                           stride_size=(df.WINDOW_SIZE - df.OVERLAP) * df.FS_TARGET)
+
+        label_seg = self.segment(np.array(annotation_itpl["cls_idx"]), max_time=len(np.array(annotation_itpl["cls_idx"])),
+                            sub_window_size=df.WINDOW_SIZE, stride_size=(df.WINDOW_SIZE - df.OVERLAP))
+
+        feature_seg = [self.extract_feature(data_seg[i]) for i in range(len(data_seg))]
+        # endregion
+
+        # region segmentation old version
+        # data_seg = []
+        # label_seg = []
+        # feature_seg = []
+        # timestamp_ann = annotation_itpl['unixtime']
+        # timestamp_data = data_itpl['unixtime']
+        # for i in range(len(annotation_itpl)):
+        #     seg = data_itpl[(data_itpl["unixtime"] >= annotation_itpl['unixtime'][i]) & (
+        #                 data_itpl["unixtime"] <= annotation_itpl['unixtime'][i] + df.ONE_SECOND_IN_MILISECOND)]
+        #     data_seg.append(np.asarray(seg[: df.DATA_LEN])[:, 1:])
+        #     label_seg.append(annotation_itpl['cls_idx'][i])
+        #     # extract features
+        #     if feature:
+        #         feature_seg.append(extract_feature(seg))
+        # endregion
+
+        # region Write tf_record file
+        if 0 < len(data_seg) == len(label_seg) > 0 and write_tfrecord:
+            tfrecord.generate_data(
+                path=self.tfrecord_path + f'/{self.user_id}-{self.session_id}_{self.device_id}_{self.e4_device_id}.tfrecord',
+                dataset=(data_seg, label_seg, feature_seg)
+            )
+        # endregion
+
+        return data_seg, label_seg, feature_seg
 
 
 
