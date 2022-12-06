@@ -181,60 +181,75 @@ def main(prepare_data=True):
                     label.extend(label_seg)
                     feature.extend(feature_seg)
     # result = list(map(process_data, args1, args2, args3, args4, args5, args6))
-
+    print('Shape of feature: {}'.format(np.shape(np.array(feature))))
     # region Training
-    X_train, X_test, y_train, y_test = train_test_split(data, label, test_size=0.3, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(feature, label, test_size=0.3, random_state=42)
+    from sklearn.feature_selection import SelectKBest, f_classif
+    selector = SelectKBest(f_classif, k=50)
+    y_train2 = np.argmax(np.array(y_train), axis=1)
+    feature_new = selector.fit_transform(X_train, y_train2)
+    cols = selector.get_support(indices=True)
+    a=0
+    X_test_new = np.array(X_test)[:, cols]
+
 
     # train_dataset
-    train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
-    train_dataset = train_dataset.shuffle(buffer_size=1024).batch(df.BATCH_SIZE)
-
-    # eval_dataset
-    eval_dataset = tf.data.Dataset.from_tensor_slices((X_test, y_test))
-    eval_dataset = eval_dataset.batch(df.BATCH_SIZE)
+    # train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
+    # train_dataset = train_dataset.shuffle(buffer_size=1024).batch(df.BATCH_SIZE)
+    #
+    # # eval_dataset
+    # eval_dataset = tf.data.Dataset.from_tensor_slices((X_test, y_test))
+    # eval_dataset = eval_dataset.batch(df.BATCH_SIZE)
 
     print('\nII. Training Process')
-    model = ActivityModel(input_len=df.WINDOW_SIZE*df.FS_TARGET, num_data_type=df.NUM_DATA_TYPE, output_shape=df.NUM_CLASSES).make()
-    model.summary()
-
-    callbacks, path = CreateCallBack().creating_callbacks(df.SAVE_CKPT_PATH)
-
-    # resume training
-    initial_epoch = 0
-    resume = tf.train.latest_checkpoint(path[0])
-    resume = False
-    if resume:
-        initial_epoch = int(resume.split("/")[-1][:-5])
-        model.load_weights(resume)
+    # model = ActivityModel(input_len=df.WINDOW_SIZE*df.FS_TARGET, num_data_type=df.NUM_DATA_TYPE, output_shape=df.NUM_CLASSES).make()
+    # model.summary()
+    #
+    # callbacks, path = CreateCallBack().creating_callbacks(df.SAVE_CKPT_PATH)
+    #
+    # # resume training
+    # initial_epoch = 0
+    # resume = tf.train.latest_checkpoint(path[0])
+    # resume = False
+    # if resume:
+    #     initial_epoch = int(resume.split("/")[-1][:-5])
+    #     model.load_weights(resume)
 
     print('\n+++++++++++++++++++++++++++++++ Training Process: +++++++++++++++++++++++++++++++')
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=df.LEARNING_RATE),
-                  loss='categorical_crossentropy', metrics=['accuracy'])
-    history = model.fit(train_dataset,
-                        epochs=df.EPOCHS,
-                        batch_size=df.BATCH_SIZE,
-                        initial_epoch=initial_epoch,
-                        verbose=1,
-                        validation_data=eval_dataset,
-                        use_multiprocessing=False,
-                        workers=1,
-                        callbacks=callbacks)
+    # model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=df.LEARNING_RATE),
+    #               loss='categorical_crossentropy', metrics=['accuracy'])
+    # history = model.fit(train_dataset,
+    #                     epochs=df.EPOCHS,
+    #                     batch_size=df.BATCH_SIZE,
+    #                     initial_epoch=initial_epoch,
+    #                     verbose=1,
+    #                     validation_data=eval_dataset,
+    #                     use_multiprocessing=False,
+    #                     workers=1,
+    #                     callbacks=callbacks)
+    #
+    # visualize_model(checkpoint_path=df.SAVE_CKPT_PATH, history=history)
 
-    visualize_model(checkpoint_path=df.SAVE_CKPT_PATH, history=history)
-
-    # model_ml = RandomForestClassifier(n_estimators=500, n_jobs=-1)
-    # model_ml.fit(X_train, y_train)
+    y_train = np.argmax(np.array(y_train), axis=1)
+    y_test = np.argmax(np.array(y_test), axis=1)
+    model = RandomForestClassifier(n_estimators=500, n_jobs=-1)
+    model.fit(X_train, y_train)
     # endregion
 
     # region Testing
-    y_predict = model.predict(np.array(X_test))
-    y_predict_convert = np.argmax(y_predict, axis=1)
-    y_test_convert = np.argmax(y_test, axis=1)
-    print(classification_report(y_test_convert, y_predict_convert))
-
-    ConfusionMatrixDisplay(confusion_matrix(y_test_convert, y_predict_convert)).plot()
-    # plt.xticks(rotation=45, ha='right')
+    y_predict = model.predict(X_test)
+    print(classification_report(y_test, y_predict))
+    plot_confusion_matrix(model, X_test, y_test)
     plt.show()
+
+    # y_predict = model.predict(np.array(X_test))
+    # y_predict_convert = np.argmax(y_predict, axis=1)
+    # y_test_convert = np.argmax(y_test, axis=1)
+    # print(classification_report(y_test_convert, y_predict_convert))
+
+    # ConfusionMatrixDisplay(confusion_matrix(y_test_convert, y_predict_convert)).plot()
+    # plt.xticks(rotation=45, ha='right')
+    # plt.show()
     # endregion
 
 

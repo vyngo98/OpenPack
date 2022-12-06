@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import json
+import scipy
 import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
@@ -290,10 +291,11 @@ class LoadData:
         # Load JSON file
         with open(path, "r") as f:
             data = json.load(f)
+        key_points = np.array([data['annotations'][i]["keypoints"] for i in range(len(data['annotations']))])
 
         if visualize:
             self.plot_kinect_2d_kpt(data["annotations"], cfg)
-        return data
+        return key_points
 
     @staticmethod
     def plot_e4_all(
@@ -496,14 +498,15 @@ class LoadData:
         all_data.append(df_imu_data)
 
         # read kinect 2d keypoint data
-        # js_kinect_data = self.get_kinect_data(cfg)
-        # all_data.append(js_kinect_data)
+        js_kinect_data = self.get_kinect_data(cfg)
+        all_data.append(js_kinect_data)
 
         # read data from E4 (Acceratation, BVP, EDA, and Temperature; e4-XXX)
-        # e4_data = self.get_e4_data(cfg)
-        # all_data.append(e4_data)
+        e4_data = self.get_e4_data(cfg)
+        all_data.append(e4_data)
 
         return all_data
+
 
 class ProcessData:
     def __init__(self, user_id, session_id, device_id, e4_device_id, all_data, tfrecord_path):
@@ -524,7 +527,19 @@ class ProcessData:
     #     return features
 
     @staticmethod
-    def extract_feature(data):
+    def autocorr(x):
+        result = np.correlate(x, x, mode='full')
+        return result[result.size // 2:][:10]
+
+    @staticmethod
+    def shannon_entropy(x):
+        pd_series = pd.Series(x)
+        counts = pd_series.value_counts()
+        entropy = scipy.stats.entropy(counts)
+
+        return entropy
+
+    def extract_feature(self, data):
         mean_ft = np.mean(data, axis=0)
         std_ft = np.std(data, axis=0)
         max_ft = np.max(data, axis=0)
@@ -532,7 +547,22 @@ class ProcessData:
         var_ft = np.var(data, axis=0)
         med_ft = np.median(data, axis=0)
         sum_ft = np.sum(data, axis=0)
-        features = np.array([mean_ft, std_ft, max_ft, min_ft, var_ft, med_ft, sum_ft]).T.flatten()
+        import scipy
+        skew = scipy.stats.skew(data, axis=0)
+        kurtosis = scipy.stats.kurtosis(data, axis=0)
+        q25 = np.percentile(data, 25, axis=0)
+        q75 = np.percentile(data, 75, axis=0)
+        iqr = q75 - q25
+        # autocorrelation = np.array([self.autocorr(data[:, x]) for x in range(np.shape(data)[1])]).T
+        shannon_entropy = np.array([self.shannon_entropy(data[:, x]) for x in range(np.shape(data)[1])])
+        features = np.array([mean_ft, std_ft, max_ft, min_ft, var_ft, med_ft, sum_ft, skew, kurtosis, q25, q75, iqr, shannon_entropy]).T.flatten()
+        # features = np.concatenate([features, autocorrelation], axis=0).T.flatten()
+        features = np.nan_to_num(features)
+
+        # freqs = np.fft.fftfreq(data.size, time_step)
+        # import pywt
+        # pywt.wavedec(data[:, 0], 'db1', level=2)
+
         return features
 
     @staticmethod
@@ -550,6 +580,8 @@ class ProcessData:
     def process(self, write_tfrecord=True):
         annotation = self.all_data[0]
         data = self.all_data[1]
+        e4_data = self.all_data[-1]
+        kp_data = self.all_data[-2]
 
         # sort data based on timestamp
         annotation.sort_values('unixtime')
@@ -562,15 +594,21 @@ class ProcessData:
         # interpolate missing values
         data_itpl = data.interpolate()
         data_itpl = data_itpl.fillna(0)
+        data_itpl = data_itpl.sort_values(by=['unixtime'])
 
         annotation_itpl = annotation.interpolate()
         annotation_itpl = annotation_itpl.fillna(0)
+        annotation_itpl = annotation_itpl.sort_values(by=['unixtime'])
 
         annotation_itpl["cls_idx"] = optk.OPENPACK_OPERATIONS.convert_id_to_index(annotation_itpl["operation"])
+        annotation_itpl = annotation_itpl.sort_values(by=['unixtime'])
 
-        filt_data_itpl = np.array(data_itpl[(data_itpl['unixtime'] >= annotation_itpl['unixtime'].iloc[0]) &
+        filt_data_itpl = data_itpl[(data_itpl['unixtime'] >= annotation_itpl['unixtime'].iloc[0]) &
                                             (data_itpl['unixtime'] < annotation_itpl['unixtime'].iloc[
-                                                -1] + df.ONE_SECOND_IN_MILISECOND)])[:, 1:]
+                                                -1] + df.ONE_SECOND_IN_MILISECOND)]
+
+        filt_data_itpl = filt_data_itpl.sort_values(by=['unixtime'])
+        filt_data_itpl = np.array(filt_data_itpl)[:, 1:]
 
         # region Segmentation
         resamp_data = np.asarray([])
@@ -587,9 +625,79 @@ class ProcessData:
         label_seg = self.segment(np.array(annotation_itpl["cls_idx"]), max_time=len(np.array(annotation_itpl["cls_idx"])),
                             sub_window_size=df.WINDOW_SIZE, stride_size=(df.WINDOW_SIZE - df.OVERLAP))
 
+        # label_time_seg = self.segment(np.array(annotation_itpl["unixtime"]),
+        #                          max_time=len(np.array(annotation_itpl["cls_idx"])),
+        #                          sub_window_size=df.WINDOW_SIZE, stride_size=(df.WINDOW_SIZE - df.OVERLAP))
+
         feature_seg = [self.extract_feature(data_seg[i]) for i in range(len(data_seg))]
+
+        # region kinect point data
+        kp_data = kp_data[:, 5:, 2]
+        filt_kp_data = kp_data[: (len(annotation)*df.FS_KEYPOINT)]
+        data_kp_seg = self.segment(filt_kp_data, max_time=len(filt_kp_data), sub_window_size=df.WINDOW_SIZE * df.FS_KEYPOINT,
+                                stride_size=(df.WINDOW_SIZE - df.OVERLAP) * df.FS_KEYPOINT)
+        feature_kp_seg = [self.extract_feature(data_kp_seg[i]) for i in range(len(data_kp_seg))]
+
+        # combine eda and temp into a dataframe
+        eda = e4_data['eda']
+        eda['temp'] = e4_data['temp']['temp']
+        filt_eda = eda[(eda['time'] >= annotation_itpl['unixtime'].iloc[0]) &
+                       (eda['time'] < annotation_itpl['unixtime'].iloc[
+                           -1] + df.ONE_SECOND_IN_MILISECOND)]
+
+        filt_eda = filt_eda.sort_values(by=['time'])
+        filt_eda = np.array(filt_eda)[:, 1:]
+
+        # resamp_eda = np.asarray([])
+        # for ch in range(np.shape(filt_eda)[1]):
+        #     resamp_sig, _ = resample_sig(filt_eda[:, ch], 3.9, df.FS_E4)
+        #     if len(resamp_eda) == 0:
+        #         resamp_eda = resamp_sig.reshape(-1, 1)
+        #     else:
+        #         resamp_eda = np.concatenate((resamp_eda, resamp_sig.reshape(-1, 1)), axis=1)
+
+        data_eda_seg = self.segment(filt_eda, max_time=len(filt_eda), sub_window_size=df.WINDOW_SIZE * df.FS_E4,
+                                stride_size=(df.WINDOW_SIZE - df.OVERLAP) * df.FS_E4)
+
+        feature_eda_seg = [self.extract_feature(data_eda_seg[i]) for i in range(len(data_eda_seg))]
+
+        # region bvp data
+        bvp = e4_data['bvp']
+        filt_bvp = bvp[(bvp['time'] >= annotation_itpl['unixtime'].iloc[0]) &
+                       (bvp['time'] < annotation_itpl['unixtime'].iloc[
+                           -1] + df.ONE_SECOND_IN_MILISECOND)]
+
+        filt_bvp = filt_bvp.sort_values(by=['time'])
+        filt_bvp = np.array(filt_bvp)[:, 1:]
+        data_bvp_seg = self.segment(filt_bvp, max_time=len(filt_bvp), sub_window_size=df.WINDOW_SIZE * df.FS_BVP,
+                                    stride_size=(df.WINDOW_SIZE - df.OVERLAP) * df.FS_BVP)
+
+        feature_bvp_seg = [self.extract_feature(data_bvp_seg[i]) for i in range(len(data_bvp_seg))]
         # endregion
 
+        list_len_data = [np.shape(data_seg)[0], np.shape(data_kp_seg)[0], np.shape(data_eda_seg)[0], np.shape(data_bvp_seg)[0]]
+
+        if any(x != np.shape(label_seg)[0] for x in list_len_data):
+            min_value = np.min([np.shape(data_seg)[0], np.shape(label_seg)[0], np.shape(data_kp_seg)[0], np.shape(data_eda_seg)[0]])
+            data_seg = data_seg[:min_value]
+            feature_seg = np.array(feature_seg[:min_value])
+            label_seg = label_seg[:min_value]
+            data_kp_seg = data_kp_seg[:min_value]
+            data_eda_seg = data_eda_seg[:min_value]
+            data_bvp_seg = data_bvp_seg[:min_value]
+            feature_eda_seg = np.array(feature_eda_seg[:min_value])
+            feature_kp_seg = np.array(feature_kp_seg[:min_value])
+            feature_bvp_seg = np.array(feature_bvp_seg[:min_value])
+        feature_seg = np.concatenate([feature_seg, feature_eda_seg, feature_kp_seg, feature_bvp_seg], axis=1)
+        # endregion
+
+        delete_ind = []
+        for i in range(len(label_seg)):
+            if len(np.unique(label_seg[i])) > 1:
+                delete_ind.append(i)
+        data_seg = np.delete(data_seg, delete_ind, axis=0)
+        label_seg = np.delete(label_seg, delete_ind, axis=0)[:, 0]
+        feature_seg = np.delete(np.array(feature_seg), delete_ind, axis=0)
         # region segmentation old version
         # data_seg = []
         # label_seg = []

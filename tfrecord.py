@@ -52,7 +52,8 @@ def generate_data(path, dataset, classes=NUM_CLASSES):
 def _parse_function(record_batch, data_len, classes_len, feature_len):
     feature = {
         'data': tf.io.FixedLenFeature([data_len*NUM_DATA_TYPE, 1], tf.float32),
-        'label': tf.io.FixedLenFeature([classes_len*WINDOW_SIZE], tf.int64),
+        # 'label': tf.io.FixedLenFeature([classes_len*WINDOW_SIZE], tf.int64),
+        'label': tf.io.FixedLenFeature([classes_len], tf.int64),
         'feature': tf.io.FixedLenFeature([feature_len*NUM_DATA_TYPE, 1], tf.float32)
     }
 
@@ -77,7 +78,7 @@ def get_dataset_from_tfrecord(files):
         list_tensors = [i for i in batch]
         data.extend([tensor.numpy().flatten().reshape((WINDOW_SIZE*FS_TARGET, NUM_DATA_TYPE)) for tensor in list_tensors[0]])
         feature.extend([tensor.numpy().flatten() for tensor in list_tensors[2]])
-        label.extend([tensor.numpy().flatten().reshape((WINDOW_SIZE, NUM_CLASSES)) for tensor in list_tensors[1]])
+        label.extend([tensor.numpy().flatten() for tensor in list_tensors[1]])
     return data, feature, label
 
 
