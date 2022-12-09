@@ -157,7 +157,9 @@ def main(prepare_data=True):
             for device_id in df.DEVICE_ID:
                 for e4_device_id in df.E4_DEVICE_ID:
                     if prepare_data:
-                        all_data = LoadData(user_id, session_id, device_id, e4_device_id, df.OPENPACK_VERSION,
+                        # all_data = LoadData(user_id, session_id, device_id, e4_device_id, df.OPENPACK_VERSION,
+                        #                     df.DATASET_ROOTDIR).process()
+                        all_data = LoadDataMultiDevice(user_id, session_id, device_id, e4_device_id, df.OPENPACK_VERSION,
                                             df.DATASET_ROOTDIR).process()
                         data_seg, label_seg, feature_seg = ProcessData(user_id, session_id, device_id, e4_device_id, all_data, df.TFRECORD_TRAIN_PATH).process(write_tfrecord=True)
                         # data_seg, label_seg, feature_seg = process_data(user_id, session_id, device_id, e4_device_id,

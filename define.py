@@ -20,11 +20,11 @@ if not os.path.exists(SAVE_CKPT_PATH):
     os.makedirs(SAVE_CKPT_PATH)
 
 USER_ID_TRAIN = [
-    "U0101",
+    # "U0101",
     # "U0102",
     # "U0103",
     # "U0105",
-    # "U0106",
+    "U0106",
     # "U0107", "U0109", "U0111", "U0202", "U0205", "U0210"
 ]
 SESSION_ID_TRAIN = [
@@ -33,8 +33,8 @@ SESSION_ID_TRAIN = [
     # "S0200",
     # "S0400", "S0500"
 ]
-DEVICE_ID = ["atr01"]
-E4_DEVICE_ID = ['e401']
+DEVICE_ID = [["atr01", "atr02"]]
+E4_DEVICE_ID = [['e401', 'e402']]
 
 ONE_SECOND_IN_MILISECOND = 1000  # ms
 
