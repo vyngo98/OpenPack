@@ -1104,7 +1104,20 @@ class ProcessData:
 
         return entropy
 
-    def extract_feature(self, data):
+    @staticmethod
+    def cal_dominant_freq_ratio(data, fs):
+        fourier = np.fft.fft(data)
+        frequencies = np.fft.fftfreq(np.shape(data)[0], d=1/fs)
+        # positive_frequencies = frequencies[np.where(frequencies >= 0)]
+        magnitudes = abs(fourier[np.where(frequencies >= 0)])
+
+        peak_magnitude = np.max(magnitudes, axis=0)
+        dominant_freq_ratio = peak_magnitude / sum(magnitudes)
+
+        energy = sum(magnitudes**2)
+        return dominant_freq_ratio, energy
+
+    def extract_feature(self, data, fs):
         mean_ft = np.mean(data, axis=0)
         std_ft = np.std(data, axis=0)
         max_ft = np.max(data, axis=0)
@@ -1118,9 +1131,11 @@ class ProcessData:
         q25 = np.percentile(data, 25, axis=0)
         q75 = np.percentile(data, 75, axis=0)
         iqr = q75 - q25
+        rms = np.sqrt(np.mean(data**2, axis=0))
+        dominant_freq_ratio, energy = self.cal_dominant_freq_ratio(data, fs)
         # autocorrelation = np.array([self.autocorr(data[:, x]) for x in range(np.shape(data)[1])]).T
         shannon_entropy = np.array([self.shannon_entropy(data[:, x]) for x in range(np.shape(data)[1])])
-        features = np.array([mean_ft, std_ft, max_ft, min_ft, var_ft, med_ft, sum_ft, skew, kurtosis, q25, q75, iqr, shannon_entropy]).T.flatten()
+        features = np.array([mean_ft, std_ft, max_ft, min_ft, var_ft, med_ft, sum_ft, skew, kurtosis, q25, q75, iqr, shannon_entropy, rms, dominant_freq_ratio, energy]).T.flatten()
         # features = np.concatenate([features, autocorrelation], axis=0).T.flatten()
         features = np.nan_to_num(features)
 
@@ -1194,14 +1209,14 @@ class ProcessData:
         #                          max_time=len(np.array(annotation_itpl["cls_idx"])),
         #                          sub_window_size=df.WINDOW_SIZE, stride_size=(df.WINDOW_SIZE - df.OVERLAP))
 
-        feature_seg = [self.extract_feature(data_seg[i]) for i in range(len(data_seg))]
+        feature_seg = [self.extract_feature(data_seg[i], df.FS_TARGET) for i in range(len(data_seg))]
 
         # region kinect point data
         kp_data = kp_data[:, 5:, 2]
         filt_kp_data = kp_data[: (len(annotation)*df.FS_KEYPOINT)]
         data_kp_seg = self.segment(filt_kp_data, max_time=len(filt_kp_data), sub_window_size=df.WINDOW_SIZE * df.FS_KEYPOINT,
                                 stride_size=(df.WINDOW_SIZE - df.OVERLAP) * df.FS_KEYPOINT)
-        feature_kp_seg = [self.extract_feature(data_kp_seg[i]) for i in range(len(data_kp_seg))]
+        feature_kp_seg = [self.extract_feature(data_kp_seg[i], df.FS_KEYPOINT) for i in range(len(data_kp_seg))]
 
         # combine eda and temp into a dataframe
         eda = e4_data['eda']
@@ -1224,7 +1239,7 @@ class ProcessData:
         data_eda_seg = self.segment(filt_eda, max_time=len(filt_eda), sub_window_size=df.WINDOW_SIZE * df.FS_E4,
                                 stride_size=(df.WINDOW_SIZE - df.OVERLAP) * df.FS_E4)
 
-        feature_eda_seg = [self.extract_feature(data_eda_seg[i]) for i in range(len(data_eda_seg))]
+        feature_eda_seg = [self.extract_feature(data_eda_seg[i], df.FS_E4) for i in range(len(data_eda_seg))]
 
         # region bvp data
         bvp = e4_data['bvp']
@@ -1237,7 +1252,7 @@ class ProcessData:
         data_bvp_seg = self.segment(filt_bvp, max_time=len(filt_bvp), sub_window_size=df.WINDOW_SIZE * df.FS_BVP,
                                     stride_size=(df.WINDOW_SIZE - df.OVERLAP) * df.FS_BVP)
 
-        feature_bvp_seg = [self.extract_feature(data_bvp_seg[i]) for i in range(len(data_bvp_seg))]
+        feature_bvp_seg = [self.extract_feature(data_bvp_seg[i], df.FS_BVP) for i in range(len(data_bvp_seg))]
         # endregion
 
         list_len_data = [np.shape(data_seg)[0], np.shape(data_kp_seg)[0], np.shape(data_eda_seg)[0], np.shape(data_bvp_seg)[0]]
@@ -1263,6 +1278,10 @@ class ProcessData:
         data_seg = np.delete(data_seg, delete_ind, axis=0)
         label_seg = np.delete(label_seg, delete_ind, axis=0)[:, 0]
         feature_seg = np.delete(np.array(feature_seg), delete_ind, axis=0)
+        data_kp_seg = np.delete(data_kp_seg, delete_ind, axis=0)
+        data_eda_seg = np.delete(data_eda_seg, delete_ind, axis=0)
+        data_bvp_seg = np.delete(data_bvp_seg, delete_ind, axis=0)
+        a=0
         # region segmentation old version
         # data_seg = []
         # label_seg = []

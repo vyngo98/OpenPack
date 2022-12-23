@@ -186,13 +186,13 @@ def main(prepare_data=True):
     print('Shape of feature: {}'.format(np.shape(np.array(feature))))
     # region Training
     X_train, X_test, y_train, y_test = train_test_split(feature, label, test_size=0.3, random_state=42)
-    from sklearn.feature_selection import SelectKBest, f_classif
-    selector = SelectKBest(f_classif, k=50)
-    y_train2 = np.argmax(np.array(y_train), axis=1)
-    feature_new = selector.fit_transform(X_train, y_train2)
-    cols = selector.get_support(indices=True)
-    a=0
-    X_test_new = np.array(X_test)[:, cols]
+    # from sklearn.feature_selection import SelectKBest, f_classif
+    # selector = SelectKBest(f_classif, k=50)
+    # y_train2 = np.argmax(np.array(y_train), axis=1)
+    # feature_new = selector.fit_transform(X_train, y_train2)
+    # cols = selector.get_support(indices=True)
+    # a=0
+    # X_test_new = np.array(X_test)[:, cols]
 
 
     # train_dataset

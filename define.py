@@ -20,16 +20,16 @@ if not os.path.exists(SAVE_CKPT_PATH):
     os.makedirs(SAVE_CKPT_PATH)
 
 USER_ID_TRAIN = [
-    # "U0101",
+    "U0101",
     # "U0102",
     # "U0103",
     # "U0105",
-    "U0106",
+    # "U0106",
     # "U0107", "U0109", "U0111", "U0202", "U0205", "U0210"
 ]
 SESSION_ID_TRAIN = [
-    "S0100",
-    # "S0300",
+    # "S0100",
+    "S0300",
     # "S0200",
     # "S0400", "S0500"
 ]
@@ -42,9 +42,9 @@ FS_ORG = 1000/33  # Hz
 FS_TARGET = 30  # Hz
 
 # WINDOW_SIZE = 60  # second
-WINDOW_SIZE = 5  # second
+WINDOW_SIZE = 4  # second
 # OVERLAP = 30  # second
-OVERLAP = 3  # second
+OVERLAP = 2  # second
 
 # NUM_DATA_TYPE = 11  # include unix_time column
 NUM_DATA_TYPE = 10
