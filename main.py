@@ -14,6 +14,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import plot_confusion_matrix
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report
+from catboost import Pool, CatBoostClassifier
 
 
 # def extract_feature(data):
@@ -156,15 +157,12 @@ def main(prepare_data=True):
         for session_id in df.SESSION_ID_TRAIN:
             for device_id in df.DEVICE_ID:
                 for e4_device_id in df.E4_DEVICE_ID:
+                    if [user_id, session_id] in df.ERROR_FILES:
+                        continue
                     if prepare_data:
-                        # all_data = LoadData(user_id, session_id, device_id, e4_device_id, df.OPENPACK_VERSION,
-                        #                     df.DATASET_ROOTDIR).process()
                         all_data = LoadDataMultiDevice(user_id, session_id, device_id, e4_device_id, df.OPENPACK_VERSION,
                                             df.DATASET_ROOTDIR).process()
                         data_seg, label_seg, feature_seg = ProcessData(user_id, session_id, device_id, e4_device_id, all_data, df.TFRECORD_TRAIN_PATH).process(write_tfrecord=True)
-                        # data_seg, label_seg, feature_seg = process_data(user_id, session_id, device_id, e4_device_id,
-                        #                                                 df.OPENPACK_VERSION, df.DATASET_ROOTDIR,
-                        #                                                 tfrecord_path=df.TFRECORD_TRAIN_PATH)
                         label_seg = tf.keras.utils.to_categorical(label_seg, df.NUM_CLASSES).astype('int64')
 
                     else:  # load dat from tfrecord files
@@ -186,14 +184,42 @@ def main(prepare_data=True):
     print('Shape of feature: {}'.format(np.shape(np.array(feature))))
     # region Training
     X_train, X_test, y_train, y_test = train_test_split(feature, label, test_size=0.3, random_state=42)
-    # from sklearn.feature_selection import SelectKBest, f_classif
-    # selector = SelectKBest(f_classif, k=50)
-    # y_train2 = np.argmax(np.array(y_train), axis=1)
-    # feature_new = selector.fit_transform(X_train, y_train2)
-    # cols = selector.get_support(indices=True)
-    # a=0
-    # X_test_new = np.array(X_test)[:, cols]
 
+    # from catboost import CatBoostClassifier
+    train_pool = Pool(data=X_train, label=y_train)
+    test_pool = Pool(data=X_test, label=y_test)
+
+    model = CatBoostClassifier(
+        iterations=10,
+        learning_rate=0.1,
+        random_strength=0.1,
+        depth=8,
+        loss_function='MultiLogloss',
+        eval_metric='Accuracy',
+        leaf_estimation_method='Newton'
+    )
+    model.fit(train_pool, plot=True, eval_set=test_pool)
+    # clf = CatBoostClassifier(
+    #     iterations=5,
+    #     learning_rate=0.01,
+    #     depth=2,
+    #     loss_function='LogLoss',
+    #     eval_metric='AUC'
+    # )
+    #
+    # clf.fit(X_train, y_train,
+    #         eval_set=(X_test, y_test),
+    #         verbose=True
+    #         )
+
+    y_predict = model.predict(data=X_test)
+    print(classification_report(y_test, y_predict))
+    y_test_arg = np.argmax(y_test, axis=1)
+    y_predict_arg = np.argmax(y_predict, axis=1)
+    cm = confusion_matrix(y_test_arg, y_predict_arg, labels=np.unique(y_test_arg))
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+    disp.plot()
+    plt.show()
 
     # train_dataset
     # train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
@@ -232,17 +258,17 @@ def main(prepare_data=True):
     #
     # visualize_model(checkpoint_path=df.SAVE_CKPT_PATH, history=history)
 
-    y_train = np.argmax(np.array(y_train), axis=1)
-    y_test = np.argmax(np.array(y_test), axis=1)
-    model = RandomForestClassifier(n_estimators=500, n_jobs=-1)
-    model.fit(X_train, y_train)
-    # endregion
-
-    # region Testing
-    y_predict = model.predict(X_test)
-    print(classification_report(y_test, y_predict))
-    plot_confusion_matrix(model, X_test, y_test)
-    plt.show()
+    # y_train = np.argmax(np.array(y_train), axis=1)
+    # y_test = np.argmax(np.array(y_test), axis=1)
+    # model = RandomForestClassifier(n_estimators=500, n_jobs=-1)
+    # model.fit(X_train, y_train)
+    # # endregion
+    #
+    # # region Testing
+    # y_predict = model.predict(X_test)
+    # print(classification_report(y_test, y_predict))
+    # plot_confusion_matrix(model, X_test, y_test)
+    # plt.show()
 
     # y_predict = model.predict(np.array(X_test))
     # y_predict_convert = np.argmax(y_predict, axis=1)

@@ -84,3 +84,9 @@ def get_dataset_from_tfrecord(files):
 
 # data, feature, label = get_dataset_from_tfrecord('/Users/farina/Workspace/Databases/OpenPack/data/datasets/v0.3.0/tfrecord_training/U0102-S0100_atr01_e401.tfrecord')
 # a=0
+
+# result = []
+# for example in tf.compat.v1.python_io.tf_record_iterator("/Users/farina/Downloads/ann2/default.tfrecord"):
+#     result.append(tf.train.Example.FromString(example))
+#
+# a=0

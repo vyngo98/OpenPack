@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import math
 import json
 import scipy
 import seaborn as sns
@@ -681,7 +682,8 @@ class LoadDataMultiDevice:
             print(path)
 
             df = pd.read_csv(path)
-            df.columns = [str(col) + '_{}'.format(each_atr_device) if col != 'unixtime' else str(col) for col in df.columns]
+            df.columns = [str(col) + '_{}'.format(each_atr_device) if col != 'unixtime' else str(col) for col in
+                          df.columns]
             if e == 0:
                 concat_df = df
             # concat_df.append(df)
@@ -962,7 +964,7 @@ class LoadDataMultiDevice:
             # Load CSV file
             df_e4_temp = pd.read_csv(path)
             df_e4_temp.columns = [str(col) + '_{}'.format(each_e4_device) if col != 'time' else str(col)
-                                 for col in df_e4_temp.columns]
+                                  for col in df_e4_temp.columns]
             # endregion
 
             if e == 0:
@@ -975,10 +977,14 @@ class LoadDataMultiDevice:
                 df_e4_bvp = df_e4_bvp.drop(columns=['time'])
                 df_e4_eda = df_e4_eda.drop(columns=['time'])
                 df_e4_temp = df_e4_temp.drop(columns=['time'])
-                concat_e4_acc = pd.concat([concat_e4_acc.reset_index(drop=True), df_e4_acc.reset_index(drop=True)], axis=1)
-                concat_e4_bvp = pd.concat([concat_e4_bvp.reset_index(drop=True), df_e4_bvp.reset_index(drop=True)], axis=1)
-                concat_e4_eda = pd.concat([concat_e4_eda.reset_index(drop=True), df_e4_eda.reset_index(drop=True)], axis=1)
-                concat_e4_temp = pd.concat([concat_e4_temp.reset_index(drop=True), df_e4_temp.reset_index(drop=True)], axis=1)
+                concat_e4_acc = pd.concat([concat_e4_acc.reset_index(drop=True), df_e4_acc.reset_index(drop=True)],
+                                          axis=1)
+                concat_e4_bvp = pd.concat([concat_e4_bvp.reset_index(drop=True), df_e4_bvp.reset_index(drop=True)],
+                                          axis=1)
+                concat_e4_eda = pd.concat([concat_e4_eda.reset_index(drop=True), df_e4_eda.reset_index(drop=True)],
+                                          axis=1)
+                concat_e4_temp = pd.concat([concat_e4_temp.reset_index(drop=True), df_e4_temp.reset_index(drop=True)],
+                                           axis=1)
 
             data = {
                 "acc": df_e4_acc,
@@ -991,11 +997,11 @@ class LoadDataMultiDevice:
                 self.plot_e4_all(data, cfg.user.name, cfg.session, cfg.device)
 
         concat_data = {
-                "acc": concat_e4_acc,
-                "bvp": concat_e4_bvp,
-                "eda": concat_e4_eda,
-                "temp": concat_e4_temp,
-            }
+            "acc": concat_e4_acc,
+            "bvp": concat_e4_bvp,
+            "eda": concat_e4_eda,
+            "temp": concat_e4_temp,
+        }
         return concat_data
 
     def process_multi_device(self):
@@ -1107,14 +1113,14 @@ class ProcessData:
     @staticmethod
     def cal_dominant_freq_ratio(data, fs):
         fourier = np.fft.fft(data)
-        frequencies = np.fft.fftfreq(np.shape(data)[0], d=1/fs)
+        frequencies = np.fft.fftfreq(np.shape(data)[0], d=1 / fs)
         # positive_frequencies = frequencies[np.where(frequencies >= 0)]
         magnitudes = abs(fourier[np.where(frequencies >= 0)])
 
         peak_magnitude = np.max(magnitudes, axis=0)
         dominant_freq_ratio = peak_magnitude / sum(magnitudes)
 
-        energy = sum(magnitudes**2)
+        energy = sum(magnitudes ** 2)
         return dominant_freq_ratio, energy
 
     def extract_feature(self, data, fs):
@@ -1131,11 +1137,13 @@ class ProcessData:
         q25 = np.percentile(data, 25, axis=0)
         q75 = np.percentile(data, 75, axis=0)
         iqr = q75 - q25
-        rms = np.sqrt(np.mean(data**2, axis=0))
+        rms = np.sqrt(np.mean(data ** 2, axis=0))
         dominant_freq_ratio, energy = self.cal_dominant_freq_ratio(data, fs)
         # autocorrelation = np.array([self.autocorr(data[:, x]) for x in range(np.shape(data)[1])]).T
         shannon_entropy = np.array([self.shannon_entropy(data[:, x]) for x in range(np.shape(data)[1])])
-        features = np.array([mean_ft, std_ft, max_ft, min_ft, var_ft, med_ft, sum_ft, skew, kurtosis, q25, q75, iqr, shannon_entropy, rms, dominant_freq_ratio, energy]).T.flatten()
+        features = np.array(
+            [mean_ft, std_ft, max_ft, min_ft, var_ft, med_ft, sum_ft, skew, kurtosis, q25, q75, iqr, shannon_entropy,
+             rms, dominant_freq_ratio, energy]).T.flatten()
         # features = np.concatenate([features, autocorrelation], axis=0).T.flatten()
         features = np.nan_to_num(features)
 
@@ -1156,6 +1164,58 @@ class ProcessData:
             sub_windows = sub_windows[:-uniq_row, :]
 
         return data[sub_windows]
+
+    @staticmethod
+    def cal_angle(a, b, c):
+        ba = a - b
+        bc = c - b
+
+        cosine_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc))
+        angle = np.arccos(cosine_angle)
+
+        # ang = math.degrees(math.atan2(c[1] - b[1], c[0] - b[0]) - math.atan2(a[1] - b[1], a[0] - b[0]))
+        # return ang + 360 if ang < 0 else ang
+        return angle
+
+    @staticmethod
+    def nan_helper(y):
+        return np.isnan(y), lambda z: z.nonzero()[0]
+
+    def itpl_nan(self, y):
+        nans, x = self.nan_helper(y)
+        y[nans] = np.interp(x(nans), x(~nans), y[~nans])
+        return y
+
+    def extract_joint_angles(self, kp_data):
+        left_hip_knee = np.asarray([self.cal_angle(kp_data[i, 13, :], kp_data[i, 11, :], kp_data[i, 12, :])
+                                    for i in range(len(kp_data))])
+        left_hip_knee = self.itpl_nan(left_hip_knee)
+        right_hip_knee = np.asarray([self.cal_angle(kp_data[i, 14, :], kp_data[i, 12, :], kp_data[i, 11, :])
+                                     for i in range(len(kp_data))])
+        right_hip_knee = self.itpl_nan(right_hip_knee)
+        left_knee_ankle = np.asarray([self.cal_angle(kp_data[i, 11, :], kp_data[i, 13, :], kp_data[i, 15, :])
+                                      for i in range(len(kp_data))])
+        left_knee_ankle = self.itpl_nan(left_knee_ankle)
+        right_knee_ankle = np.asarray([self.cal_angle(kp_data[i, 12, :], kp_data[i, 14, :], kp_data[i, 16, :])
+                                       for i in range(len(kp_data))])
+        right_knee_ankle = self.itpl_nan(right_knee_ankle)
+        left_elbow_shoulder_hip = np.asarray([self.cal_angle(kp_data[i, 7, :], kp_data[i, 5, :], kp_data[i, 11, :])
+                                              for i in range(len(kp_data))])
+        left_elbow_shoulder_hip = self.itpl_nan(left_elbow_shoulder_hip)
+        right_elbow_shoulder_hip = np.asarray([self.cal_angle(kp_data[i, 8, :], kp_data[i, 6, :], kp_data[i, 12, :])
+                                               for i in range(len(kp_data))])
+        right_elbow_shoulder_hip = self.itpl_nan(right_elbow_shoulder_hip)
+        left_wrist_elbow_shoulder = np.asarray([self.cal_angle(kp_data[i, 9, :], kp_data[i, 7, :], kp_data[i, 5, :])
+                                                for i in range(len(kp_data))])
+        left_wrist_elbow_shoulder = self.itpl_nan(left_wrist_elbow_shoulder)
+        right_wrist_elbow_shoulder = np.asarray(
+            [self.cal_angle(kp_data[i, 10, :], kp_data[i, 8, :], kp_data[i, 6, :])
+             for i in range(len(kp_data))])
+        right_wrist_elbow_shoulder = self.itpl_nan(right_wrist_elbow_shoulder)
+        joint_angles = np.array(
+            [left_hip_knee, right_hip_knee, left_knee_ankle, right_knee_ankle, left_elbow_shoulder_hip,
+             right_elbow_shoulder_hip, left_wrist_elbow_shoulder, right_wrist_elbow_shoulder]).T
+        return joint_angles
 
     def process(self, write_tfrecord=True):
         annotation = self.all_data[0]
@@ -1184,8 +1244,8 @@ class ProcessData:
         annotation_itpl = annotation_itpl.sort_values(by=['unixtime'])
 
         filt_data_itpl = data_itpl[(data_itpl['unixtime'] >= annotation_itpl['unixtime'].iloc[0]) &
-                                            (data_itpl['unixtime'] < annotation_itpl['unixtime'].iloc[
-                                                -1] + df.ONE_SECOND_IN_MILISECOND)]
+                                   (data_itpl['unixtime'] < annotation_itpl['unixtime'].iloc[
+                                       -1] + df.ONE_SECOND_IN_MILISECOND)]
 
         filt_data_itpl = filt_data_itpl.sort_values(by=['unixtime'])
         filt_data_itpl = np.array(filt_data_itpl)[:, 1:]
@@ -1200,10 +1260,11 @@ class ProcessData:
                 resamp_data = np.concatenate((resamp_data, resamp_sig.reshape(-1, 1)), axis=1)
 
         data_seg = self.segment(resamp_data, max_time=len(resamp_data), sub_window_size=df.WINDOW_SIZE * df.FS_TARGET,
-                           stride_size=(df.WINDOW_SIZE - df.OVERLAP) * df.FS_TARGET)
+                                stride_size=(df.WINDOW_SIZE - df.OVERLAP) * df.FS_TARGET)
 
-        label_seg = self.segment(np.array(annotation_itpl["cls_idx"]), max_time=len(np.array(annotation_itpl["cls_idx"])),
-                            sub_window_size=df.WINDOW_SIZE, stride_size=(df.WINDOW_SIZE - df.OVERLAP))
+        label_seg = self.segment(np.array(annotation_itpl["cls_idx"]),
+                                 max_time=len(np.array(annotation_itpl["cls_idx"])),
+                                 sub_window_size=df.WINDOW_SIZE, stride_size=(df.WINDOW_SIZE - df.OVERLAP))
 
         # label_time_seg = self.segment(np.array(annotation_itpl["unixtime"]),
         #                          max_time=len(np.array(annotation_itpl["cls_idx"])),
@@ -1212,15 +1273,25 @@ class ProcessData:
         feature_seg = [self.extract_feature(data_seg[i], df.FS_TARGET) for i in range(len(data_seg))]
 
         # region kinect point data
-        kp_data = kp_data[:, 5:, 2]
-        filt_kp_data = kp_data[: (len(annotation)*df.FS_KEYPOINT)]
-        data_kp_seg = self.segment(filt_kp_data, max_time=len(filt_kp_data), sub_window_size=df.WINDOW_SIZE * df.FS_KEYPOINT,
-                                stride_size=(df.WINDOW_SIZE - df.OVERLAP) * df.FS_KEYPOINT)
+        kp_data = kp_data[:, :, :2]
+        filt_kp_data = kp_data[: (len(annotation) * df.FS_KEYPOINT)]
+
+        joint_angles = self.extract_joint_angles(filt_kp_data)
+        joint_angles_seg = self.segment(joint_angles, max_time=len(filt_kp_data),
+                                        sub_window_size=df.WINDOW_SIZE * df.FS_KEYPOINT,
+                                        stride_size=(df.WINDOW_SIZE - df.OVERLAP) * df.FS_KEYPOINT)
+        feature_joint_angles_seg = [self.extract_feature(joint_angles_seg[i], df.FS_KEYPOINT) for i in
+                                    range(len(joint_angles_seg))]
+
+        data_kp_seg = self.segment(filt_kp_data.reshape(filt_kp_data.shape[0], -1), max_time=len(filt_kp_data),
+                                   sub_window_size=df.WINDOW_SIZE * df.FS_KEYPOINT,
+                                   stride_size=(df.WINDOW_SIZE - df.OVERLAP) * df.FS_KEYPOINT)
         feature_kp_seg = [self.extract_feature(data_kp_seg[i], df.FS_KEYPOINT) for i in range(len(data_kp_seg))]
 
         # combine eda and temp into a dataframe
         eda = e4_data['eda']
-        eda = pd.concat([eda.reset_index(drop=True), e4_data['temp'].drop(columns=['time']).reset_index(drop=True)], axis=1)
+        eda = pd.concat([eda.reset_index(drop=True), e4_data['temp'].drop(columns=['time']).reset_index(drop=True)],
+                        axis=1)
         filt_eda = eda[(eda['time'] >= annotation_itpl['unixtime'].iloc[0]) &
                        (eda['time'] < annotation_itpl['unixtime'].iloc[
                            -1] + df.ONE_SECOND_IN_MILISECOND)]
@@ -1237,7 +1308,7 @@ class ProcessData:
         #         resamp_eda = np.concatenate((resamp_eda, resamp_sig.reshape(-1, 1)), axis=1)
 
         data_eda_seg = self.segment(filt_eda, max_time=len(filt_eda), sub_window_size=df.WINDOW_SIZE * df.FS_E4,
-                                stride_size=(df.WINDOW_SIZE - df.OVERLAP) * df.FS_E4)
+                                    stride_size=(df.WINDOW_SIZE - df.OVERLAP) * df.FS_E4)
 
         feature_eda_seg = [self.extract_feature(data_eda_seg[i], df.FS_E4) for i in range(len(data_eda_seg))]
 
@@ -1255,10 +1326,13 @@ class ProcessData:
         feature_bvp_seg = [self.extract_feature(data_bvp_seg[i], df.FS_BVP) for i in range(len(data_bvp_seg))]
         # endregion
 
-        list_len_data = [np.shape(data_seg)[0], np.shape(data_kp_seg)[0], np.shape(data_eda_seg)[0], np.shape(data_bvp_seg)[0]]
+        list_len_data = [np.shape(data_seg)[0], np.shape(data_kp_seg)[0], np.shape(data_eda_seg)[0],
+                         np.shape(data_bvp_seg)[0], np.shape(joint_angles_seg)[0]]
 
         if any(x != np.shape(label_seg)[0] for x in list_len_data):
-            min_value = np.min([np.shape(data_seg)[0], np.shape(label_seg)[0], np.shape(data_kp_seg)[0], np.shape(data_eda_seg)[0]])
+            min_value = np.min(
+                [np.shape(data_seg)[0], np.shape(label_seg)[0], np.shape(data_kp_seg)[0], np.shape(data_eda_seg)[0],
+                 np.shape(data_bvp_seg)[0], np.shape(joint_angles_seg)[0]])
             data_seg = data_seg[:min_value]
             feature_seg = np.array(feature_seg[:min_value])
             label_seg = label_seg[:min_value]
@@ -1268,7 +1342,13 @@ class ProcessData:
             feature_eda_seg = np.array(feature_eda_seg[:min_value])
             feature_kp_seg = np.array(feature_kp_seg[:min_value])
             feature_bvp_seg = np.array(feature_bvp_seg[:min_value])
-        feature_seg = np.concatenate([feature_seg, feature_eda_seg, feature_kp_seg, feature_bvp_seg], axis=1)
+            feature_joint_angles_seg = np.array(feature_joint_angles_seg[:min_value])
+        feature_seg = np.concatenate(
+            [feature_seg, feature_eda_seg, feature_bvp_seg, feature_joint_angles_seg], axis=1)
+        # feature_seg = np.concatenate(
+        #     [feature_seg, feature_eda_seg, feature_kp_seg, feature_bvp_seg, feature_joint_angles_seg], axis=1)
+        # feature_seg = np.concatenate([feature_seg, feature_eda_seg, feature_kp_seg, feature_bvp_seg,
+        # joint_angles_seg.reshape(joint_angles_seg.shape[0], -1)], axis=1)
         # endregion
 
         delete_ind = []
@@ -1281,7 +1361,7 @@ class ProcessData:
         data_kp_seg = np.delete(data_kp_seg, delete_ind, axis=0)
         data_eda_seg = np.delete(data_eda_seg, delete_ind, axis=0)
         data_bvp_seg = np.delete(data_bvp_seg, delete_ind, axis=0)
-        a=0
+        a = 0
         # region segmentation old version
         # data_seg = []
         # label_seg = []
@@ -1299,18 +1379,13 @@ class ProcessData:
         # endregion
 
         # region Write tf_record file
-        if 0 < len(data_seg) == len(label_seg) > 0 and write_tfrecord:
-            tfrecord.generate_data(
-                path=self.tfrecord_path + f'/{self.user_id}-{self.session_id}_{self.device_id}_{self.e4_device_id}.tfrecord',
-                dataset=(data_seg, label_seg, feature_seg)
-            )
-            print("Generate {}\n".format(
-                self.tfrecord_path + f'/{self.user_id}-{self.session_id}_{self.device_id}_{self.e4_device_id}.tfrecord'))
+        # if 0 < len(data_seg) == len(label_seg) > 0 and write_tfrecord:
+        #     tfrecord.generate_data(
+        #         path=self.tfrecord_path + f'/{self.user_id}-{self.session_id}_{self.device_id}_{self.e4_device_id}.tfrecord',
+        #         dataset=(data_seg, label_seg, feature_seg)
+        #     )
+        #     print("Generate {}\n".format(
+        #         self.tfrecord_path + f'/{self.user_id}-{self.session_id}_{self.device_id}_{self.e4_device_id}.tfrecord'))
         # endregion
 
         return data_seg, label_seg, feature_seg
-
-
-
-
-
