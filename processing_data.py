@@ -2,7 +2,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import math
 import json
 import scipy
 import seaborn as sns
@@ -12,8 +11,8 @@ import openpack_toolkit as optk
 from omegaconf import DictConfig, OmegaConf
 from wfdb.processing import resample_sig
 
-import tfrecord
-import define as df
+# import tfrecord
+import define
 
 
 class LoadData:
@@ -667,6 +666,26 @@ class LoadDataMultiDevice:
         fig.tight_layout()
         fig.show()
 
+    @staticmethod
+    def calc_fusion_val(df):
+        ava = np.abs(df['acc_x']*np.sin(df['gyro_z']) + df['acc_y'] + np.sin(df['gyro_y']) - df['acc_z']*np.cos(df['gyro_y'])*np.cos(df['gyro_z']))
+        df['ava'] = ava
+        mag_acc = np.sqrt(df['acc_x']**2 + df['acc_y']**2 + df['acc_z']**2)
+        df['mag_acc'] = mag_acc
+        mag_gyro = np.sqrt(df['gyro_x'] ** 2 + df['gyro_y'] ** 2 + df['gyro_z'] ** 2)
+        df['mag_gyro'] = mag_gyro
+        # region complementary filter
+        theta = np.zeros(len(df['acc_x']))
+        for i in range(len(theta)):
+            if i == 0:
+                theta_new = 0.98*1/define.FS_TARGET + 0.02*np.arctan2(df['acc_x'][i], df['acc_y'][i])
+            else:
+                theta_new = 0.98*(theta[i-1] + 1/define.FS_TARGET) + 0.02*np.arctan2(df['acc_x'][i], df['acc_y'][i])
+            theta[i] = theta_new
+        df['theta'] = theta
+        # endregion
+        return df
+
     def get_imu_data(self, cfg, visualize=False):
         # Set parameters to the config object.
         cfg.dataset.stream = optk.configs.datasets.streams.ATR_QAGS_STREAM
@@ -682,11 +701,11 @@ class LoadDataMultiDevice:
             print(path)
 
             df = pd.read_csv(path)
+            df = self.calc_fusion_val(df)
             df.columns = [str(col) + '_{}'.format(each_atr_device) if col != 'unixtime' else str(col) for col in
                           df.columns]
             if e == 0:
                 concat_df = df
-            # concat_df.append(df)
             else:
                 df = df.drop(columns=['unixtime'])
                 concat_df = pd.concat([concat_df.reset_index(drop=True), df.reset_index(drop=True)], axis=1)
@@ -1245,7 +1264,7 @@ class ProcessData:
 
         filt_data_itpl = data_itpl[(data_itpl['unixtime'] >= annotation_itpl['unixtime'].iloc[0]) &
                                    (data_itpl['unixtime'] < annotation_itpl['unixtime'].iloc[
-                                       -1] + df.ONE_SECOND_IN_MILISECOND)]
+                                       -1] + define.ONE_SECOND_IN_MILISECOND)]
 
         filt_data_itpl = filt_data_itpl.sort_values(by=['unixtime'])
         filt_data_itpl = np.array(filt_data_itpl)[:, 1:]
@@ -1253,40 +1272,40 @@ class ProcessData:
         # region Segmentation
         resamp_data = np.asarray([])
         for ch in range(np.shape(filt_data_itpl)[1]):
-            resamp_sig, _ = resample_sig(filt_data_itpl[:, ch], df.FS_ORG, df.FS_TARGET)
+            resamp_sig, _ = resample_sig(filt_data_itpl[:, ch], define.FS_ORG, define.FS_TARGET)
             if len(resamp_data) == 0:
                 resamp_data = resamp_sig.reshape(-1, 1)
             else:
                 resamp_data = np.concatenate((resamp_data, resamp_sig.reshape(-1, 1)), axis=1)
 
-        data_seg = self.segment(resamp_data, max_time=len(resamp_data), sub_window_size=df.WINDOW_SIZE * df.FS_TARGET,
-                                stride_size=(df.WINDOW_SIZE - df.OVERLAP) * df.FS_TARGET)
+        data_seg = self.segment(resamp_data, max_time=len(resamp_data), sub_window_size=define.WINDOW_SIZE * define.FS_TARGET,
+                                stride_size=(define.WINDOW_SIZE - define.OVERLAP) * define.FS_TARGET)
 
         label_seg = self.segment(np.array(annotation_itpl["cls_idx"]),
                                  max_time=len(np.array(annotation_itpl["cls_idx"])),
-                                 sub_window_size=df.WINDOW_SIZE, stride_size=(df.WINDOW_SIZE - df.OVERLAP))
+                                 sub_window_size=define.WINDOW_SIZE, stride_size=(define.WINDOW_SIZE - define.OVERLAP))
 
         # label_time_seg = self.segment(np.array(annotation_itpl["unixtime"]),
         #                          max_time=len(np.array(annotation_itpl["cls_idx"])),
         #                          sub_window_size=df.WINDOW_SIZE, stride_size=(df.WINDOW_SIZE - df.OVERLAP))
 
-        feature_seg = [self.extract_feature(data_seg[i], df.FS_TARGET) for i in range(len(data_seg))]
+        feature_seg = [self.extract_feature(data_seg[i], define.FS_TARGET) for i in range(len(data_seg))]
 
         # region kinect point data
         kp_data = kp_data[:, :, :2]
-        filt_kp_data = kp_data[: (len(annotation) * df.FS_KEYPOINT)]
+        filt_kp_data = kp_data[: (len(annotation) * define.FS_KEYPOINT)]
 
         joint_angles = self.extract_joint_angles(filt_kp_data)
         joint_angles_seg = self.segment(joint_angles, max_time=len(filt_kp_data),
-                                        sub_window_size=df.WINDOW_SIZE * df.FS_KEYPOINT,
-                                        stride_size=(df.WINDOW_SIZE - df.OVERLAP) * df.FS_KEYPOINT)
-        feature_joint_angles_seg = [self.extract_feature(joint_angles_seg[i], df.FS_KEYPOINT) for i in
+                                        sub_window_size=define.WINDOW_SIZE * define.FS_KEYPOINT,
+                                        stride_size=(define.WINDOW_SIZE - define.OVERLAP) * define.FS_KEYPOINT)
+        feature_joint_angles_seg = [self.extract_feature(joint_angles_seg[i], define.FS_KEYPOINT) for i in
                                     range(len(joint_angles_seg))]
 
         data_kp_seg = self.segment(filt_kp_data.reshape(filt_kp_data.shape[0], -1), max_time=len(filt_kp_data),
-                                   sub_window_size=df.WINDOW_SIZE * df.FS_KEYPOINT,
-                                   stride_size=(df.WINDOW_SIZE - df.OVERLAP) * df.FS_KEYPOINT)
-        feature_kp_seg = [self.extract_feature(data_kp_seg[i], df.FS_KEYPOINT) for i in range(len(data_kp_seg))]
+                                   sub_window_size=define.WINDOW_SIZE * define.FS_KEYPOINT,
+                                   stride_size=(define.WINDOW_SIZE - define.OVERLAP) * define.FS_KEYPOINT)
+        feature_kp_seg = [self.extract_feature(data_kp_seg[i], define.FS_KEYPOINT) for i in range(len(data_kp_seg))]
 
         # combine eda and temp into a dataframe
         eda = e4_data['eda']
@@ -1294,7 +1313,7 @@ class ProcessData:
                         axis=1)
         filt_eda = eda[(eda['time'] >= annotation_itpl['unixtime'].iloc[0]) &
                        (eda['time'] < annotation_itpl['unixtime'].iloc[
-                           -1] + df.ONE_SECOND_IN_MILISECOND)]
+                           -1] + define.ONE_SECOND_IN_MILISECOND)]
 
         filt_eda = filt_eda.sort_values(by=['time'])
         filt_eda = np.array(filt_eda)[:, 1:]
@@ -1307,23 +1326,23 @@ class ProcessData:
         #     else:
         #         resamp_eda = np.concatenate((resamp_eda, resamp_sig.reshape(-1, 1)), axis=1)
 
-        data_eda_seg = self.segment(filt_eda, max_time=len(filt_eda), sub_window_size=df.WINDOW_SIZE * df.FS_E4,
-                                    stride_size=(df.WINDOW_SIZE - df.OVERLAP) * df.FS_E4)
+        data_eda_seg = self.segment(filt_eda, max_time=len(filt_eda), sub_window_size=define.WINDOW_SIZE * define.FS_E4,
+                                    stride_size=(define.WINDOW_SIZE - define.OVERLAP) * define.FS_E4)
 
-        feature_eda_seg = [self.extract_feature(data_eda_seg[i], df.FS_E4) for i in range(len(data_eda_seg))]
+        feature_eda_seg = [self.extract_feature(data_eda_seg[i], define.FS_E4) for i in range(len(data_eda_seg))]
 
         # region bvp data
         bvp = e4_data['bvp']
         filt_bvp = bvp[(bvp['time'] >= annotation_itpl['unixtime'].iloc[0]) &
                        (bvp['time'] < annotation_itpl['unixtime'].iloc[
-                           -1] + df.ONE_SECOND_IN_MILISECOND)]
+                           -1] + define.ONE_SECOND_IN_MILISECOND)]
 
         filt_bvp = filt_bvp.sort_values(by=['time'])
         filt_bvp = np.array(filt_bvp)[:, 1:]
-        data_bvp_seg = self.segment(filt_bvp, max_time=len(filt_bvp), sub_window_size=df.WINDOW_SIZE * df.FS_BVP,
-                                    stride_size=(df.WINDOW_SIZE - df.OVERLAP) * df.FS_BVP)
+        data_bvp_seg = self.segment(filt_bvp, max_time=len(filt_bvp), sub_window_size=define.WINDOW_SIZE * define.FS_BVP,
+                                    stride_size=(define.WINDOW_SIZE - define.OVERLAP) * define.FS_BVP)
 
-        feature_bvp_seg = [self.extract_feature(data_bvp_seg[i], df.FS_BVP) for i in range(len(data_bvp_seg))]
+        feature_bvp_seg = [self.extract_feature(data_bvp_seg[i], define.FS_BVP) for i in range(len(data_bvp_seg))]
         # endregion
 
         list_len_data = [np.shape(data_seg)[0], np.shape(data_kp_seg)[0], np.shape(data_eda_seg)[0],

@@ -281,5 +281,6 @@ def main(prepare_data=True):
     # endregion
 
 
+
 if __name__ == "__main__":
-    main()
+    main2()
